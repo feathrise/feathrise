@@ -74,6 +74,7 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     parked_glb_references: Local<'s, crate::authoring::source_glbs::deletion::ParkedGlbReferences>,
     boundary_edit: Option<Res<'w, crate::authoring::BoundaryEditState>>, // 实时拖点未收口时不冻结半笔。
     boundary_numeric: Option<Res<'w, crate::authoring::boundary::BoundaryThicknessInputState>>, // 三个墙体数值字段共享收口门。
+    simulation: Option<Res<'w, crate::world_environment_controls::SimulationInputState>>,
     surface_task: Option<Res<'w, SurfaceLayerEditTask>>, // 可选资源保持不含地表UI的既有保存测试和独立工具兼容。
     puddles: Option<Res<'w, crate::authoring::PuddleAuthoringState>>, // 保存等待积水整笔后台收口。
     surface_stroke: Option<Res<'w, SurfaceBrushStroke>>, // 已受理但尚未dirty的共享等待单击同样不能被保存越过。
@@ -146,6 +147,10 @@ pub(crate) fn start_draft_save(
         *readiness.boundary_capture = default(); // 已取消的请求不保留待保存墙点。
         *readiness.water_capture = default();
         return;
+    }
+    if readiness.simulation.as_ref().is_some_and(|input| input.busy()) {
+        editor.status = "环境滑块尚未松手；松手后自动继续保存".into();
+        return; // 松手提交一笔历史后，再冻结完整场景快照。
     }
     if readiness.scene_objects.as_ref().is_some_and(|state| state.busy()) {
         editor.status = "等待场景对象管理完成后保存…".into();

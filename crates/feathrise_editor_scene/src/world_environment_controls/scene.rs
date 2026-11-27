@@ -1,4 +1,4 @@
-//! F12 世界环境时间、月份和天气控件生成。
+//! 环境方案起始时间、月份、天气和草尖摆幅控件生成。
 
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
@@ -176,7 +176,7 @@ fn slider_visual() -> SliderVisual {
     }
 }
 
-/// 暂停填满整行，天气动作严格等宽；只调整公共按钮外壳，不改变原调试动作。
+/// 暂停填满整行，天气动作沿用公共按钮外壳，统一提交方案配置。
 fn world_button_style(full_width: bool) -> TextButtonStyle {
     let mut style = menu_button_style(126.0, 26.0, 10.5);
     style.node.width = if full_width { percent(100) } else { Val::Auto };
@@ -278,7 +278,7 @@ fn spawn_slider_block<Label: Component, Track: Component, Thumb: Component>(
         });
 }
 
-/// 环境页固定槽位出现时一次生成完整世界环境调试组。
+/// 环境页固定槽位出现时一次生成完整方案模拟参数组。
 pub(crate) fn setup_world_environment_controls(
     mut commands: Commands,
     slots: Query<Entity, Added<WorldEnvironmentControlsSlot>>,
@@ -308,7 +308,7 @@ pub(crate) fn setup_world_environment_controls(
                 WorldTimeSlider,
                 WorldTimeSliderThumb,
                 font.clone(),
-                "当前时间",
+                "起始时间",
                 format_hour(clock.hour_for_display()),
                 hour_thumb_left(clock.hour_for_display()),
                 &TIME_TICKS,
@@ -319,7 +319,7 @@ pub(crate) fn setup_world_environment_controls(
                 WorldMonthSlider,
                 WorldMonthSliderThumb,
                 font.clone(),
-                "当前月份",
+                "起始月份",
                 format!(
                     "{}月{}日 · {}",
                     clock.month(),
@@ -333,8 +333,8 @@ pub(crate) fn setup_world_environment_controls(
                 parent,
                 WeatherRegionLabel,
                 font.clone(),
-                "天气区域",
-                "当前天气 · 同步中".to_owned(),
+                "方案天气",
+                "方案天气 · 同步中".to_owned(),
             );
             spawn_slider_block(
                 parent,
@@ -377,29 +377,21 @@ pub(crate) fn setup_world_environment_controls(
                         "立即应用",
                         world_button_style(false),
                     );
-                    spawn_custom_text_button_with_text_marker(
-                        row,
-                        WeatherRerollButton,
-                        LocalizedText::label("重新随机天气"),
-                        font.clone(), // 天气按钮之后仍需使用同一字体生成草地风摆滑块。
-                        "重新随机天气",
-                        world_button_style(false),
-                    );
                 });
             // 【功能设计】原F1摆幅成为晴天基准，实际风向、摆幅和速度均由同帧天气桥统一派生。
             spawn_slider_block(
                 parent,               // 放在天气操作下方，避免与天空和天体作者参数混排。
-                GrassWindSliderLabel, // 当前值仍从settings.json加载。
+                GrassWindSliderLabel, // 初始兼容值随后由当前方案的正式回显覆盖。
                 GrassWindSlider,      // 拖动轨道沿用F12统一天气控件。
                 GrassWindSliderThumb, // 手柄同帧跟随安全钳制的厘米档位。
                 font.clone(),         // 复用环境页中文字体。
-                "草尖摆幅调试",       // 说明此值不是天气风速，也不影响雨与云。
-                format_grass_wind_strength(settings.environment.grass_wind_tip_strength), // 显示原持久值。
-                grass_wind_thumb_left(settings.environment.grass_wind_tip_strength), // 保持打开时位置准确。
+                "草尖摆幅",           // 晴天基准随当前环境方案保存。
+                format_grass_wind_strength(settings.environment.grass_wind_tip_strength), // 旧场景无模拟配置时沿用编辑器偏好。
+                grass_wind_thumb_left(settings.environment.grass_wind_tip_strength), // 初始位置由同帧方案同步确定。
                 &GRASS_WIND_TICKS, // 零至三十五厘米的原安全刻度。
             ); // 此控件只影响植被晴天基准摆幅，不改天气输出。
             parent.spawn((
-                feathrise_editor_ui::localization::editor_label("晴天基准值 · 实际摆幅随天气变化"), // 区分持久调试标尺与当前天气派生值。
+                feathrise_editor_ui::localization::editor_label("晴天基准值 · 实际摆幅随天气变化"), // 区分方案基准与当前天气派生值。
                 TextFont {
                     font: font.into(),     // 保留环境页中文字体。
                     font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(), // 小号说明不抢天气状态主信息。

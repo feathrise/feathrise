@@ -34,6 +34,8 @@ use std::{fs, path::{Path, PathBuf}};
 mod creation;
 #[path = "scene_tree_validation/chosen_glb.rs"]
 pub(super) mod chosen_glb;
+#[path = "scene_tree_validation/environment.rs"]
+mod environment;
 #[path = "scene_tree_validation/lights.rs"]
 mod lights;
 #[path = "scene_tree_validation/still_water.rs"]
@@ -65,6 +67,7 @@ struct StartupScreenshot(Task<Result<(), String>>);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     Open,
+    Environment(environment::Step),
     StartupTreeReady,
     StartupScreenshot,
     StillWater(still_water::Step),
@@ -168,6 +171,9 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
         return chosen_glb::reopened(world, paths.project_root(), &scene);
     }
     preflight(paths.project_root(), &scene).ok()?;
+    if environment::enabled() {
+        return Some(json!({"reopened_environment": environment::reopened(world, &scene)?}));
+    }
     if lights_only() { return Some(json!({"reopened_local_lights": lights::rendered(world)?})); }
     let draft = world.resource::<EditorAuthoringSession>().draft.as_ref()?;
     let folders = &draft.object_folders;
@@ -210,7 +216,8 @@ pub(super) fn advance(
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
     if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed
-        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::CreateLights(_) | Step::FolderDropped(_) | Step::StillWater(_))
+        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::CreateLights(_) | Step::FolderDropped(_) | Step::StillWater(_)
+        | Step::Environment(_))
     {
         return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
@@ -219,6 +226,10 @@ pub(super) fn advance(
     let transform_enabled = world.resource::<SceneEditorState>().placement_transform_enabled;
     match *step {
         Step::Open => {
+            if environment::enabled() {
+                *step = Step::Environment(environment::Step::begin());
+                return Ok(None);
+            }
             if open_scene_tree(world)? {
                 *step = if lights_only() {
                     if !crate::authoring::local_lights::AVAILABLE { return Err("当前 SDK 不支持局部灯具验收".into()); }
@@ -227,6 +238,12 @@ pub(super) fn advance(
                     Step::CreateObjects(creation::begin())
                 } else { Step::StartupTreeReady };
             }
+        }
+        Step::Environment(mut current) => {
+            let proof = environment::advance(world, &mut current)?;
+            *revision = world.resource::<EditorAuthoringSession>().revision;
+            *step = Step::Environment(current);
+            return Ok(proof);
         }
         Step::StartupTreeReady => {
             if !startup_enabled() {

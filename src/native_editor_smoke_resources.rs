@@ -22,7 +22,7 @@ pub(super) struct SmokePlan {
     pub save_requested: bool,
     pub save_error: Option<String>,
     pub save_proof: Option<feathrise_editor_scene::standalone::validation_fixture::SavedEditProof>,
-    pub expects_chosen_glb_reopened: bool,
+    pub expects_saved_scene_reopened: bool,
     pub current_author_document: Option<serde_json::Value>,
     pub font: Handle<Font>,
     pub directory: PathBuf,

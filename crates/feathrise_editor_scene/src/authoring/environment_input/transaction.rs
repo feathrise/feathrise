@@ -52,7 +52,7 @@ pub(super) const fn authored_field_value(
 }
 
 /// 只当持久字段仍等于事务latest时恢复精确before。
-fn rollback_owned_authored_field(
+pub(super) fn rollback_owned_authored_field(
     environment: &mut SceneEnvironmentDescriptor, // 当前权威环境。
     kind: EnvironmentNumericKind,               // 事务拥有的唯一字段。
     before: f32,                                // 拖动前的raw原值。

@@ -27,6 +27,7 @@ pub(crate) fn install(app: &mut App) {
         .init_resident_resource::<feathrise_scene_content::SceneAuthorPreview>()
         .init_resident_resource::<feathrise_atmosphere::WeatherAuthoringPreview>()
         .init_resident_resource::<feathrise_scene_content::DynamicCelestialLightingPreview>()
+        .init_resident_resource::<feathrise_scene_content::DynamicSceneEnvironmentPreview>()
         .init_resident_resource::<PlacementTerrainFollowState>()
         .init_resident_resource::<TerrainPreviewState>()
         .init_resident_resource::<TerrainLiveApplyState>()

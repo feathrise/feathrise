@@ -84,6 +84,9 @@ fn apply_global_celestial_history(
     undoing: bool,
     global: &mut GlobalEnvironmentAuthoringState,
 ) -> Result<(), String> {
+    if let EditorCommand::GlobalEnvironmentLibraryChanged { change, .. } = command {
+        return change.apply(global, undoing);
+    }
     let EditorCommand::GlobalCelestialLightingChanged { before, after, .. } = command else {
         return Err("请求应用的历史命令不属于全局天体光照".to_owned()); // 防止未来调用方误把场景命令写入全局文件。
     };
@@ -411,7 +414,7 @@ pub(crate) fn apply_undo_redo(
                 }
                 EditorCommand::VolumeSculptChanged(_) => unreachable!("三维历史由专用后台和联合采用门处理"),
                 EditorCommand::DomainChanged { .. } => unreachable!("外部文档历史由实际领域事务处理"),
-                EditorCommand::GlobalCelestialLightingChanged { .. } => {
+                EditorCommand::GlobalCelestialLightingChanged { .. } | EditorCommand::GlobalEnvironmentLibraryChanged { .. } => {
                     unreachable!("全局命令已在取得场景草稿前单独处理") // 保持枚举匹配完整且禁止误入场景路径。
                 }
                 EditorCommand::PlacementAdded(record) => {

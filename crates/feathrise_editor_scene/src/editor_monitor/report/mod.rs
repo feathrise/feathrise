@@ -9,7 +9,7 @@ mod water; // 静水、河流、瀑布及GLB网格水读取水域缓存。
 use feathrise_fps_display::LodControlPresetBindings;
 use feathrise_atmosphere::{WeatherDebugOverride, WeatherState}; // 环境页只在可见刷新点读取现成天气小资源。
 
-use crate::authoring::{EditorAuthoringSession, VegetationPreviewState, WaterPreviewState}; // 统一入口只接收现成作者缓存，不持有或创建后台任务。
+use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState, VegetationPreviewState, WaterPreviewState}; // 统一入口只接收现成作者缓存。
 use crate::monitor_resources::EditorSceneMonitorPage; // 当前叶子页决定唯一报告分支。
 use crate::resources::SceneEditorState; // F12显隐、dirty与当前笔刷参数用于解释作者状态。
 
@@ -21,6 +21,7 @@ pub(super) fn build_editor_scene_report(
     session: &EditorAuthoringSession,            // 当前已加载动态场景草稿。
     vegetation_preview: &VegetationPreviewState, // Mesh散布的既有完成值与安装进度。
     water_preview: &WaterPreviewState,           // 水网既有任务、安装和采用状态。
+    environment_library: Option<&GlobalEnvironmentAuthoringState>, // 保存前也显示当前采用的库方案。
     weather_state: &WeatherState,                // 自动天气连续过渡状态。
     weather_override: &WeatherDebugOverride,     // F12天气强制模式和预览覆盖。
 ) -> String {
@@ -50,7 +51,7 @@ pub(super) fn build_editor_scene_report(
         EditorSceneMonitorPage::Portals => scene::build_portals_report(editor, session),
         EditorSceneMonitorPage::Boundaries => scene::build_boundaries_report(editor, session),
         EditorSceneMonitorPage::Environment => {
-            scene::build_environment_report(editor, session, weather_state, weather_override)
+            scene::build_environment_report(editor, session, environment_library, weather_state, weather_override)
         } // 环境页与F12天气滑块必须显示同一有效预览比例。
     }
 }
@@ -81,6 +82,7 @@ mod tests {
                     &session,
                     &vegetation_preview,
                     &water_preview,
+                    None,
                     &weather_state,
                     &weather_override,
                 );

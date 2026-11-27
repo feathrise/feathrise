@@ -42,6 +42,11 @@ pub enum EditorCommand {
         before: CelestialLightingProfile, // 操作前完整六组全局属性。
         after: CelestialLightingProfile, // 操作后已经通过共享校验的完整配置。
     },
+    /// 库历史只冻结变更的一个方案或默认引用，不复制全部套装。
+    GlobalEnvironmentLibraryChanged {
+        sequence: u64,
+        change: Box<super::environment_library::EnvironmentLibraryChange>,
+    },
     DomainChanged {
         domain: &'static str,
         before: super::domain_documents::DomainValue,
@@ -393,13 +398,14 @@ impl EditorCommand {
     }
     pub const fn global_history_id(&self) -> Option<u64> {
         match self {
-            Self::GlobalCelestialLightingChanged { sequence, .. } => Some(*sequence),
+            Self::GlobalCelestialLightingChanged { sequence, .. }
+            | Self::GlobalEnvironmentLibraryChanged { sequence, .. } => Some(*sequence),
             _ => None,
         }
     }
     /// 返回命令是否只修改唯一全局世界环境文件而不要求场景保存预检。
     pub const fn is_global_environment(&self) -> bool {
-        matches!(self, Self::GlobalCelestialLightingChanged { .. }) // 新增全局属性时必须继续收口到该命令族。
+        self.global_history_id().is_some()
     }
 
     /// 稀疏高度先独立发布块清单，后续联合保存据此区分是否仍有其他场景文件责任。

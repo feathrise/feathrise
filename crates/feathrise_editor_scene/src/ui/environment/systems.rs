@@ -4,13 +4,13 @@ use bevy::prelude::*;
 use feathrise_atmosphere::{
     AuthoredSkyboxPhase, AuthoredSkyboxStatus, WorldClock, WorldEnvironmentModifiers,
 };
-use feathrise_scene_content::{SceneEnvironmentDescriptor, SceneSkyMode};
+use feathrise_scene_content::{ResolvedSceneEnvironment, SceneEnvironmentDescriptor, SceneEnvironmentSource, SceneId, SceneSkyMode, resolve_scene_environment};
 
 use super::components::{EnvironmentMapControls, EnvironmentSidebarText};
 use super::helpers::current_ibl_values;
 use super::types::{CurrentIblValues, EnvironmentObservation, EnvironmentTextField};
 use crate::authoring::{
-    EditorAuthoringSession, GlobalEnvironmentAuthoringState, GlobalEnvironmentSaveTask,
+    EditorAuthoringSession, GlobalEnvironmentAuthoringState, GlobalEnvironmentSaveTask, sky_preview_revision,
 };
 use crate::components::{SceneEditorCamera, SceneEditorEnvironmentText};
 use crate::resources::SceneEditorState;
@@ -69,6 +69,7 @@ pub(crate) fn sync_editor_environment_text(
     ibl: Query<Option<&AuthoredSkyboxStatus>, With<SceneEditorCamera>>,
     added: Query<(), Added<SceneEditorEnvironmentText>>,
     mut previous: Local<Option<EnvironmentObservation>>,
+    mut cached_environment: Local<Option<(SceneId, SceneEnvironmentSource, u64, ResolvedSceneEnvironment)>>,
     mut texts: Query<
         (
             &EnvironmentSidebarText,
@@ -93,9 +94,29 @@ pub(crate) fn sync_editor_environment_text(
         editor.selected_scene_id.as_ref() == Some(&draft.scene_id) && !editor.scene_transition_in_progress
     }); // 同名场景不构成身份；切换场景空窗不能呈现旧草稿参数。
     let dynamic = draft.filter(|draft| draft.manifest.is_data_driven());
-    let environment = dynamic.map(|draft| &draft.manifest.environment);
+    let authored = dynamic.map(|draft| &draft.manifest.environment);
+    let revision = sky_preview_revision(&session, Some(&global));
+    let resolved = dynamic.and_then(|draft| {
+        let environment = &draft.manifest.environment;
+        if !matches!(environment.source, SceneEnvironmentSource::Shared(_) | SceneEnvironmentSource::InheritDefault) {
+            return None;
+        }
+        if cached_environment.as_ref().is_none_or(|(scene_id, source, captured_revision, _)| {
+            *scene_id != draft.scene_id || *source != environment.source || *captured_revision != revision
+        }) {
+            // 仅在来源或预览修订变化时解析并复制外观，稳定帧直接读取缓存。
+            *cached_environment = Some((draft.scene_id.clone(), environment.source.clone(), revision,
+                resolve_scene_environment(environment, &global.draft.celestial_lighting, &global.draft.library)));
+        }
+        Some(())
+    }).and_then(|()| cached_environment.as_ref().map(|(_, _, _, value)| value));
+    let environment = resolved.map(|value| &value.environment).or(authored);
+    let source = authored.map(|environment| &environment.source);
     let current = environment
         .map(|environment| displayed_values(current_ibl_values(environment, &clock, &modifiers)));
+    let simulation = environment.filter(|_| matches!(source,
+        Some(SceneEnvironmentSource::InheritDefault | SceneEnvironmentSource::Shared(_))))
+        .and_then(|environment| environment.simulation);
     let draft_scene_id = session.draft.as_ref().map(|draft| &draft.scene_id);
     let scene_name = draft.map(|draft| &draft.manifest.display_name);
     let runtime_scene = draft.map(|draft| &draft.manifest.runtime_scene);
@@ -111,11 +132,13 @@ pub(crate) fn sync_editor_environment_text(
         || old.draft_scene_id.as_ref() != draft_scene_id
         || old.scene_name.as_ref() != scene_name
         || old.runtime_scene.as_ref() != runtime_scene
+        || old.environment_source.as_ref() != source
+        || old.library_listing_revision != global.library_listing_revision
         || !same_source(old.environment.as_ref(), environment)
         || old.loading != editor.scene_transition_in_progress;
-    let values_changed = scene_changed || old.current_values != current;
+    let values_changed = scene_changed || old.current_values != current || old.simulation != simulation;
     let feedback_changed = scene_changed
-        || old.environment_revision != session.environment_revision
+        || old.environment_revision != revision
         || old.environment_dirty != dirty
         || old.saving != session.saving
         || !same_ibl(old.ibl.as_ref(), ibl_status);
@@ -129,7 +152,7 @@ pub(crate) fn sync_editor_environment_text(
     }
 
     for mut node in &mut scene_controls {
-        let display = if dynamic.is_some() {
+        let display = if matches!(source, Some(SceneEnvironmentSource::Legacy | SceneEnvironmentSource::Local)) {
             Display::Flex
         } else {
             Display::None
@@ -174,16 +197,35 @@ pub(crate) fn sync_editor_environment_text(
             SceneSkyMode::Dynamic => "动态大气与云；天空盒亮度仅为切换保留",
             SceneSkyMode::Skybox => "主Cube背景；关闭动态大气与云",
         };
+        let profile_name = resolved.and_then(|value| value.profile_id.as_deref()).and_then(|id| {
+            global.draft.library.profiles.get(id).map(|profile| profile.name.as_str())
+        }).unwrap_or("安全默认");
+        let missing = resolved.and_then(|value| value.missing_profile.as_deref());
+        let source_text = if let Some(id) = missing {
+            format!("全局方案 {id} 缺失 · 使用场景已有外观")
+        } else {
+            match source {
+                Some(SceneEnvironmentSource::InheritDefault) => format!("继承工程默认 · {profile_name}"),
+                Some(SceneEnvironmentSource::Shared(_)) => format!("共享方案 · {profile_name}"),
+                Some(SceneEnvironmentSource::Local) => "场景独立副本".to_owned(),
+                _ => "场景原有配置".to_owned(),
+            }
+        };
         (
             name,
             format!(
-                "天空模式  {}\n可见来源  {visible}\n天空资源  {}\n场景气候（只读）  {} · {}",
+                "环境来源  {source_text}\n天空模式  {}\n可见来源  {visible}\n天空资源  {}\n场景气候（只读）  {} · {}",
                 environment.sky_mode.display_name(),
                 environment.skybox_path.as_deref().unwrap_or("未设置"),
                 environment.weather.region.display_name(),
                 environment.weather.climate.display_name()
             ),
-            "此区写入当前场景；太阳/月光未启用覆盖的属性跟随全局默认。".into(),
+            match source {
+                Some(SceneEnvironmentSource::Local) => "此场景独立保存环境外观。",
+                Some(SceneEnvironmentSource::InheritDefault | SceneEnvironmentSource::Shared(_)) =>
+                    "共享外观在全局环境库编辑。创建场景独立副本后可在此修改。",
+                _ => "当前场景保留已有环境配置。旧天体字段仍按各自的继承方式生效。",
+            }.into(),
         )
     });
     let values_text = values_changed.then(|| current.map_or_else(String::new, |values| {
@@ -192,7 +234,17 @@ pub(crate) fn sync_editor_environment_text(
         } else {
             String::new()
         };
-        format!("昼夜与天气计算值\n补光 {:.0} · 反射 {:.0} cd/m²{skybox}\n环境昼夜系数 {:.0}%（不含天气）",
+        // 共享来源没有可编辑轨道，仍须能核对继承到的整套持久配置。
+        let simulation = simulation.map_or_else(String::new, |simulation| {
+            let weather = simulation.weather_mode_index.checked_sub(1)
+                .and_then(|index| feathrise_atmosphere::WeatherKind::ALL.get(index as usize))
+                .map_or(locale.text("label.auto"), |kind| locale.editor_label(kind.display_name()));
+            format!("\n方案起始时间 {} · {}月{}日\n时间暂停 {} · 天气 {weather} · 过渡 {:.0}%\n晴天草尖基准 {}",
+                crate::world_environment_controls::format_hour(simulation.hour), simulation.month, simulation.day,
+                if simulation.paused { "开" } else { "关" }, simulation.weather_transition * 100.0,
+                crate::world_environment_controls::format_grass_wind_strength(simulation.grass_wind_tip_strength))
+        });
+        format!("昼夜与天气计算值\n补光 {:.0} · 反射 {:.0} cd/m²{skybox}\n环境昼夜系数 {:.0}%（不含天气）{simulation}",
             values.diffuse, values.specular, values.day_night_factor * 100.0)
     })); // 日间基础值保留在原四个字段，避免在摘要重复；计算值不声明资源已采用。
 
@@ -203,7 +255,7 @@ pub(crate) fn sync_editor_environment_text(
             .map(str::trim)
             .filter(|path| !path.is_empty());
         ibl_status.filter(|status| {
-            status.revision == session.environment_revision && status.asset_path.as_deref() == path
+            status.revision == revision && status.asset_path.as_deref() == path
         })
     }); // 路径与作者修订同时匹配，旧Ready/Failed不能冒充当前请求结果。
     let scene_feedback = feedback_changed.then(|| {
@@ -236,11 +288,11 @@ pub(crate) fn sync_editor_environment_text(
     });
     let global_feedback = global_changed.then(|| {
         let save = if global_saving {
-            "正在保存全局默认"
+            "正在保存全局环境库"
         } else if global.dirty {
-            "全局默认未保存 · 使用顶部保存"
+            "全局环境库未保存 · 使用顶部保存"
         } else {
-            "全局默认无未保存修改"
+            "全局环境库无未保存修改"
         };
         let source = global.load_error.as_deref().unwrap_or_else(|| {
             locale.text(if global.initialized { "environment.global.synced" } else { "environment.global.pending" })
@@ -297,13 +349,16 @@ pub(crate) fn sync_editor_environment_text(
         old.scene_name = scene_name.cloned();
         old.runtime_scene = runtime_scene.cloned();
         old.environment = environment.cloned();
+        old.environment_source = source.cloned();
+        old.library_listing_revision = global.library_listing_revision;
         old.loading = editor.scene_transition_in_progress;
     }
     if values_changed {
         old.current_values = current;
+        old.simulation = simulation;
     }
     if feedback_changed {
-        old.environment_revision = session.environment_revision;
+        old.environment_revision = revision;
         old.environment_dirty = dirty;
         old.saving = session.saving;
         old.ibl = ibl_status.cloned();

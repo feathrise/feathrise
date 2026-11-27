@@ -500,6 +500,7 @@ label.dynamic-sky	动态天空	Dynamic Sky
 label.skybox	天空盒	Skybox
 label.use-selected-asset	使用所选资源	Use Selected Asset
 label.clear-asset	清除资源	Clear Asset
+label.world-debug	世界调试	Debug
 label.world-debug-current-run	世界调试 · 当前运行	World Debug · Current Run
 help.time-month-and-weather-overrides-apply-to	时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前场景环境参数。	Time, month, and weather overrides apply to the current run. Paused time and clear-weather grass tip motion are saved in global settings.
 label.global-defaults-all-dynamic-scenes	全局默认 · 所有动态场景	Global Defaults · All Dynamic Scenes
@@ -1004,7 +1005,8 @@ label.cancel-close	取消关闭	Cancel Close
 label.select-scene-folder	场景列表选择	Scene List Selection
 label.interaction-tools	交互工具	Interaction Tools
 label.recent-interaction-actions	交互最近操作	Recent Interaction Actions
-label.scene-environment	场景环境	Scene Environment
+label.scene-environment	场景环境	Scene Env.
+label.global-environment-library	全局环境库	Library
 label.global-environment	全局环境	Global Environment
 label.environment-scope	环境作用范围	Environment Scope
 label.sun-and-moon-global-defaults	▼ 太阳与月光 · 全局默认	▼ Sun and Moon · Global Defaults
@@ -1627,15 +1629,15 @@ world.season.autumn	秋季	Autumn
 world.season.winter	冬季	Winter
 world.pause.on	时间暂停：开	Time Paused: On
 world.pause.off	时间暂停：关	Time Paused: Off
-world.time	当前时间	Time
-world.date	当前月份	Date
-world.weather.label	天气区域	Weather
-world.weather.current	当前天气 · {weather}	{weather}
+world.time	起始时间	Start Time
+world.date	起始月份	Start Month
+world.weather.label	方案天气	Configured Weather
+world.weather.current	方案天气 · {weather}	Configured: {weather}
 world.weather.mode	天气模式	Weather Mode
 world.weather.transition	过渡进度	Transition
 world.weather.apply	立即应用	Apply Now
 world.weather.reroll	重新随机天气	Randomize Weather
-world.grass_sway	草尖摆幅调试	Grass Tip Sway
+world.grass_sway	草尖摆幅	Grass Tip Sway
 status.source.plugin_workbench	插件工作台	Plugin Workbench
 status.source.surface_preset	地表预设	Surface Preset
 status.source.batch_save	批量保存	Batch Save

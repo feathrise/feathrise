@@ -70,7 +70,8 @@ mod tests {
             (1, EditorSceneMonitorPage::Trees, "project_crystal")] {
             editor.selected_vegetation_layer = index;
             let report = super::super::report::build_editor_scene_report(page, None, &editor, &session,
-                &VegetationPreviewState::default(), &WaterPreviewState::default(), &WeatherState::default(), &WeatherDebugOverride::default());
+                &VegetationPreviewState::default(), &WaterPreviewState::default(), None,
+                &WeatherState::default(), &WeatherDebugOverride::default());
             assert!(report.contains(id));
             assert!(report.contains("当前选中预设"));
             assert!(report.starts_with(page.display_label(None)));

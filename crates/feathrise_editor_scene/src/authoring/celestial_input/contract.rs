@@ -341,10 +341,11 @@ impl CelestialNumericKey {
 
     pub(crate) fn scene_editable(self, environment: &SceneEnvironmentDescriptor) -> bool {
         self.scope == CelestialNumericScope::Scene
-            && self
-                .field
-                .property()
-                .is_overridden(&environment.celestial_overrides)
+            && match environment.source {
+                feathrise_scene_content::SceneEnvironmentSource::Local => true,
+                feathrise_scene_content::SceneEnvironmentSource::Legacy => self.field.property().is_overridden(&environment.celestial_overrides),
+                _ => false,
+            }
     }
 }
 
@@ -418,6 +419,8 @@ impl CelestialSectionState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CelestialContextStamp {
     pub(super) global_revision: u64,
+    pub(super) global_source_revision: u64,
+    pub(super) profile_id: Option<String>,
     pub(super) scene_id: Option<SceneId>,
     pub(super) scene_revision: Option<u64>,
 }

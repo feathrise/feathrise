@@ -1,4 +1,4 @@
-//! F12 世界环境滑块端点映射、草地风摆与格式化纯函数。
+//! 环境方案滑块端点映射、草地风摆与格式化纯函数。
 
 use feathrise_environment::vegetation::blade::GPU_GRASS_MAX_WIND_TIP_STRENGTH; // 草地风摆沿用运行时GPU安全上限。
 
@@ -57,7 +57,7 @@ pub(super) fn weather_preview_thumb_left(preview: f32) -> f32 {
     normalized_ratio(preview) * WORLD_SLIDER_TRAVEL
 }
 
-/// 晴天基准摆幅以厘米步进写入原有全局设置，实际草尖幅度由天气桥派生。
+/// 晴天基准摆幅以厘米步进写入环境方案，实际草尖幅度由天气桥派生。
 pub(super) fn grass_wind_strength_from_ratio(ratio: f32) -> f32 {
     (normalized_ratio(ratio) * GRASS_WIND_MAX_CENTIMETERS).round() / 100.0 // 保留原F1的一厘米吸附精度。
 }
@@ -71,13 +71,13 @@ pub(super) fn grass_wind_thumb_left(strength: f32) -> f32 {
     safe_strength / GPU_GRASS_MAX_WIND_TIP_STRENGTH * WORLD_SLIDER_TRAVEL // 复用右栏260px滑块行程。
 }
 
-pub(super) fn format_grass_wind_strength(strength: f32) -> String {
+pub(crate) fn format_grass_wind_strength(strength: f32) -> String {
     let centimeters =
         grass_wind_thumb_left(strength) / WORLD_SLIDER_TRAVEL * GRASS_WIND_MAX_CENTIMETERS; // 标签与手柄使用相同钳制后的设置值。
     format!("{centimeters:.0} cm") // 与原F1标签保持相同的整数厘米单位。
 }
 
-pub(super) fn format_hour(hour: f32) -> String {
+pub(crate) fn format_hour(hour: f32) -> String {
     let safe = if hour.is_finite() {
         hour.clamp(0.0, 24.0)
     } else {
@@ -88,24 +88,6 @@ pub(super) fn format_hour(hour: f32) -> String {
         "24:00".to_owned()
     } else {
         format!("{:02}:{:02}", minutes / 60, minutes % 60)
-    }
-}
-
-pub(super) fn format_game_seconds(seconds: f32) -> String {
-    let total = if seconds.is_finite() {
-        seconds.max(0.0).round() as u64
-    } else {
-        0
-    };
-    if total >= 3_600 {
-        format!(
-            "{:02}:{:02}:{:02}",
-            total / 3_600,
-            total % 3_600 / 60,
-            total % 60
-        )
-    } else {
-        format!("{:02}:{:02}", total / 60, total % 60)
     }
 }
 

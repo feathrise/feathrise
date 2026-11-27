@@ -2,7 +2,7 @@
 
 use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
-use feathrise_scene_content::{CelestialLightingProfile, resolve};
+use feathrise_scene_content::{CelestialLightingProfile, SceneEnvironmentSource, resolve_scene_environment};
 use feathrise_editor_core::EditorSettings;
 use crate::ui::theme as colors;
 use feathrise_editor_ui::{
@@ -23,16 +23,13 @@ use crate::resources::SceneEditorState;
 
 fn scene_profile(
     session: &EditorAuthoringSession,
-    global: &CelestialLightingProfile,
+    global: &GlobalEnvironmentAuthoringState,
 ) -> Option<CelestialLightingProfile> {
     let draft = session
         .draft
         .as_ref()
         .filter(|draft| draft.manifest.is_data_driven())?;
-    Some(resolve(
-        global,
-        &draft.manifest.environment.celestial_overrides,
-    ))
+    Some(resolve_scene_environment(&draft.manifest.environment, &global.draft.celestial_lighting, &global.draft.library).celestial_lighting)
 }
 
 /// 选择、撤销、重做、切换场景、全局热更和设置恢复后同步全部天体控件。
@@ -87,7 +84,8 @@ pub(crate) fn sync_celestial_controls(
         *input_state = CelestialNumericInputState::default();
     }
 
-    let global_profile = &global.draft.celestial_lighting;
+    let global_profile = global.selected_celestial();
+    let resolved_scene = scene_profile(&session, &global);
     let environment = session
         .draft
         .as_ref()
@@ -101,7 +99,10 @@ pub(crate) fn sync_celestial_controls(
 
     for (entity, marker, current, disabled, mut scrub) in &mut inputs {
         let key = marker.0;
-        let value = key.displayed_value(global_profile, environment);
+        let value = match key.scope {
+            CelestialNumericScope::Global => Some(key.field.read(global_profile)),
+            CelestialNumericScope::Scene => resolved_scene.as_ref().map(|profile| key.field.read(profile)),
+        };
         let should_enable = common_enabled
             && match key.scope {
                 CelestialNumericScope::Global => true,
@@ -171,6 +172,8 @@ pub(crate) fn sync_celestial_controls(
     for (marker, mut text) in &mut text_queries.p1() {
         let expanded = sections.expanded(marker.0);
         let title = match marker.0 {
+            CelestialNumericScope::Global if global.selected_environment().is_some() => "太阳与月光 · 当前套装",
+            CelestialNumericScope::Scene if environment.is_some_and(|environment| matches!(environment.source, SceneEnvironmentSource::Local)) => "太阳与月光 · 本场景专用",
             CelestialNumericScope::Global => "太阳与月光 · 全局默认",
             CelestialNumericScope::Scene => "太阳与月光 · 场景覆盖",
         };
@@ -190,7 +193,6 @@ pub(crate) fn sync_celestial_controls(
         }
     }
 
-    let resolved_scene = scene_profile(&session, global_profile);
     for (swatch, mut background) in &mut swatches {
         let profile = match swatch.scope {
             CelestialNumericScope::Global => Some(global_profile),

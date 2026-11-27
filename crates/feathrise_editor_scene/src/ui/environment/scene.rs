@@ -1,21 +1,24 @@
-//! 场景参数、世界调试与全局默认的静态环境页；原天体字段与折叠身份保持不变。
+//! 场景外观、全局环境方案和持久模拟参数的布局。
 
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::text::FontSourceTemplate;
 use bevy::ui::RelativeCursorPosition;
+use feathrise_scene_content::SceneSkyMode;
 
 use super::components::{EnvironmentMapControls, EnvironmentSidebarText};
+use super::library::{self, EnvironmentPage, LibraryButton, LibraryPanel, ProfileText};
 use super::types::EnvironmentTextField;
 use crate::authoring::{
     CelestialColorSwatch, CelestialNumericInputSlot, CelestialNumericKey, CelestialNumericScope,
     CelestialOverrideProperty, CelestialOverrideToggle, CelestialOverrideToggleLabel,
     CelestialSectionBody, CelestialSectionToggle, CelestialSectionToggleLabel, CelestialValueField,
-    EnvironmentNumericInputSlot, EnvironmentNumericKind,
+    EnvironmentNumericInputSlot, EnvironmentNumericKind, GlobalEnvironmentNumericInputSlot,
 };
 use crate::components::{SceneEditorEnvironmentText, SceneEditorRightPanelScroll};
 use crate::types::EditorAction;
+use crate::ui::placement_transform::property_button;
 use crate::ui::scene::{FONT_PATH, flex_editor_button, inspector_section_title};
 use crate::ui::sidebars::{EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarPage};
 use crate::ui::theme as colors;
@@ -62,16 +65,21 @@ fn field_text(field: EnvironmentTextField) -> impl Scene {
 }
 
 /// 一个环境专业数值框的整行挂载槽。
-fn environment_numeric_slot(kind: EnvironmentNumericKind) -> impl Scene {
-    bsn! {
-        EnvironmentNumericInputSlot(kind)
-        Node {
-            width: percent(100),
-            min_width: px(0), // 标签、实际值、单位与进度条均在300px右栏完整显示。
-            height: px(24),
-            flex_shrink: 0.0,
-        }
-    }
+fn environment_numeric_slot(kind: EnvironmentNumericKind, global: bool) -> impl Scene {
+    (
+        global.then(|| bsn! { GlobalEnvironmentNumericInputSlot(kind) }),
+        (!global).then(|| bsn! { EnvironmentNumericInputSlot(kind) }),
+        bsn! { Node { width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0 } },
+    )
+}
+
+fn environment_sky_fields(global: bool) -> impl Scene {
+    bsn! { ~{library::column(Display::Flex)} Children [
+        @environment_numeric_slot(EnvironmentNumericKind::SkyboxBrightness, global)--
+        @environment_numeric_slot(EnvironmentNumericKind::EnvironmentDiffuseIntensity, global)--
+        @environment_numeric_slot(EnvironmentNumericKind::EnvironmentSpecularIntensity, global)--
+        @environment_numeric_slot(EnvironmentNumericKind::SkyboxYaw, global)
+    ] }
 }
 
 /// 全局或场景天体光照标量的公共数值挂载槽。
@@ -102,8 +110,8 @@ fn celestial_color_slots(scope: CelestialNumericScope, day: bool) -> impl Scene 
 /// 两个天体光照折叠区共用的铜边标题按钮。
 fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
     let title = match scope {
-        CelestialNumericScope::Global => "▼ 太阳与月光 · 全局默认",
-        CelestialNumericScope::Scene => "▼ 太阳与月光 · 场景覆盖",
+        CelestialNumericScope::Global => "▼ 太阳与月光 · 全局方案",
+        CelestialNumericScope::Scene => "▼ 太阳与月光 · 当前场景",
     };
     bsn! {
         InteractionButton
@@ -207,6 +215,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
             --
 
                 InteractionButton
+                ~{LibraryPanel::LegacyOverride}
                 CelestialOverrideToggle(property)
                 Node {
                     width: px(78),
@@ -272,6 +281,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
             --
 
                 InteractionButton
+                ~{LibraryPanel::LegacyOverride}
                 CelestialOverrideToggle(property)
                 Node {
                     width: px(78),
@@ -356,7 +366,53 @@ fn scene_celestial_body() -> impl Scene {
     }
 }
 
-/// 所有内容仍属于原环境页唯一滚动宿主；场景区域、世界调试和全局默认按原顺序排列。
+fn scene_environment() -> impl Scene {
+    bsn! { ~{LibraryPanel::Page(EnvironmentPage::Scene)} ~{library::column(Display::Flex)} Children [
+        @crate::ui::context_help::section_header("环境来源", "场景可以继承工程默认、引用指定的全局方案，或保存独立副本。共享外观在全局环境库编辑。")--
+        SceneEditorEnvironmentText EnvironmentSidebarText(EnvironmentTextField::SceneContext)
+        Text("未进入场景") @feathrise_editor_ui::localization::label_scene("未进入场景")
+        TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+        TextColor(colors::TEXT_VALUE)
+        TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
+        Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }--
+        @field_text(EnvironmentTextField::SceneSource)--
+        @field_text(EnvironmentTextField::SceneHint)--
+        @library::scene_options()--
+        @field_text(EnvironmentTextField::CurrentValues)--
+        EnvironmentMapControls ~{library::column(Display::None)} Children [
+            @inspector_section_title("天空与环境光")--
+            @two_button_row("动态天空", EditorAction::SkyModeDynamic, "天空盒", EditorAction::SkyModeSkybox)--
+            @two_button_row("使用所选资源", EditorAction::SetSelectedSkybox, "清除资源", EditorAction::ClearSkybox)--
+            @environment_sky_fields(false)--
+            @celestial_section_header(CelestialNumericScope::Scene)--
+            @scene_celestial_body()
+        ]--
+        @field_text(EnvironmentTextField::SceneFeedback)
+    ] }
+}
+
+fn library_environment() -> impl Scene {
+    bsn! { ~{LibraryPanel::Page(EnvironmentPage::Library)} ~{library::column(Display::None)} Children [
+        @crate::ui::context_help::section_header("全局方案", "默认为继承工程的场景提供外观。其他场景也可直接引用任一个方案。顶部保存统一提交库和场景修改。")--
+        @library::library_list()--
+        @field_text(EnvironmentTextField::GlobalFeedback)--
+        ~{LibraryPanel::SelectedProfile} ~{library::column(Display::None)} Children [
+            @library::profile_name()--
+            @property_button("设为工程默认", LibraryButton::SetDefault, 0.0)--
+            @library::profile_text(ProfileText::Impact)--
+            @inspector_section_title("天空与环境光")--
+            @library::button_pair(("动态天空", LibraryButton::GlobalSkyMode(SceneSkyMode::Dynamic)),
+                ("天空盒", LibraryButton::GlobalSkyMode(SceneSkyMode::Skybox)))--
+            @library::button_pair(("使用所选资源", LibraryButton::SetGlobalSkybox), ("清除资源", LibraryButton::ClearGlobalSkybox))--
+            @library::profile_text(ProfileText::Skybox)--
+            @environment_sky_fields(true)--
+            @celestial_section_header(CelestialNumericScope::Global)--
+            @global_celestial_body()
+        ]
+    ] }
+}
+
+/// 场景与方案库共用唯一模拟参数组，按当前编辑对象显示并提交作者事务。
 pub(in crate::ui) fn environment_page() -> impl Scene {
     bsn! {
         SceneEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Environment))
@@ -371,51 +427,14 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
             padding: UiRect::top(px(3)), overflow: Overflow::scroll_y(),
         }
         Children [
-            @crate::ui::context_help::section_header("当前场景 · 持久参数", "此区写入当前动态场景。太阳、月光未启用覆盖的属性跟随全局默认；固定场景没有动态场景环境草稿。来源和实际计算值仍在相应字段中显示。")--
-
-                SceneEditorEnvironmentText
-                EnvironmentSidebarText(EnvironmentTextField::SceneContext)
-                Text("未进入场景") @feathrise_editor_ui::localization::label_scene("未进入场景")
-                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                TextColor(colors::TEXT_VALUE)
-                TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
-                Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-            --
-            @field_text(EnvironmentTextField::SceneSource)--
-            @field_text(EnvironmentTextField::SceneHint)--
-
-                EnvironmentMapControls
-                Node {
-                    display: Display::None, width: percent(100), min_width: px(0),
-                    flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0,
-                }
-                Children [
-                    @inspector_section_title("天空与环境光")--
-                    @two_button_row("动态天空", EditorAction::SkyModeDynamic, "天空盒", EditorAction::SkyModeSkybox)--
-                    @two_button_row("使用所选资源", EditorAction::SetSelectedSkybox, "清除资源", EditorAction::ClearSkybox)--
-                    @environment_numeric_slot(EnvironmentNumericKind::SkyboxBrightness)--
-                    @environment_numeric_slot(EnvironmentNumericKind::EnvironmentDiffuseIntensity)--
-                    @environment_numeric_slot(EnvironmentNumericKind::EnvironmentSpecularIntensity)--
-                    @environment_numeric_slot(EnvironmentNumericKind::SkyboxYaw)--
-                    @field_text(EnvironmentTextField::CurrentValues)--
-                    @celestial_section_header(CelestialNumericScope::Scene)--
-                    @scene_celestial_body()
-                ]
-            --
-            @field_text(EnvironmentTextField::SceneFeedback)--
-            @crate::ui::context_help::section_header("世界调试 · 当前运行", "时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前场景环境参数。")--
-
-                WorldEnvironmentControlsSlot
-                Node {
-                    width: percent(100), min_width: px(0),
-                    flex_direction: FlexDirection::Column, row_gap: px(3),
-                    flex_shrink: 0.0,
-                }
-            --
-            @crate::ui::context_help::section_header("全局默认 · 所有动态场景", "场景未启用覆盖的属性跟随此处。全局草稿与场景草稿由顶部保存统一提交。")--
-            @field_text(EnvironmentTextField::GlobalFeedback)--
-            @celestial_section_header(CelestialNumericScope::Global)--
-            @global_celestial_body()
+            @library::tabs()--
+            @scene_environment()--
+            @library_environment()--
+            // 全局方案与独立场景编辑同一组持久参数；共享来源只在上方显示有效值。
+            ~{LibraryPanel::Simulation} ~{library::column(Display::None)} Children [
+                @crate::ui::context_help::section_header("时间、天气与草尖摆幅", "参数随当前环境方案保存。引用或继承全局方案的场景统一使用方案配置，制作场景独立副本后可单独修改。")--
+                WorldEnvironmentControlsSlot ~{library::column(Display::Flex)}
+            ]
         ]
     }
 }

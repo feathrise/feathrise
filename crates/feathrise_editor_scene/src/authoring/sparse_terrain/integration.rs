@@ -797,7 +797,12 @@ pub(crate) fn start_sparse_terrain_save(
     mut session: ResMut<EditorAuthoringSession>,
     mut editor: ResMut<SceneEditorState>,
     gate: super::resources::SparseBuildingSaveGate,
+    simulation: Option<Res<crate::world_environment_controls::SimulationInputState>>,
 ) {
+    if editor.save_requested && simulation.as_ref().is_some_and(|input| input.busy()) {
+        editor.status = "环境滑块尚未松手；松手后自动继续保存".into();
+        return; // 稀疏保存也不能先设置saving，避免下一帧误取消环境拖动。
+    }
     if gate
         .building
         .as_deref()

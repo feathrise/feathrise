@@ -1,4 +1,4 @@
-//! 使用真实环境页、原二十四个数值根与世界控件验证作用域；不读写用户配置。
+//! 使用真实环境页、公共数值控件和方案模拟参数验证作用域。
 
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
 use bevy::camera::{ComputedCameraValues, RenderTargetInfo, Viewport};
@@ -13,8 +13,12 @@ use feathrise_atmosphere::{
 };
 use feathrise_editor_ui::*;
 
-use super::{components::*, sync_editor_environment_text, types::*};
+use super::{
+    EnvironmentPageState, components::*, handle_environment_library_buttons,
+    library::{EnvironmentPage, LibraryButton}, sync_editor_environment_text, sync_environment_library, types::*,
+};
 use crate::authoring::*;
+use crate::authoring::environment_library::EnvironmentLibraryEditRequest;
 use crate::components::{SceneEditorActionButton, SceneEditorCamera, SceneEditorRightPanelScroll};
 use crate::resources::SceneEditorState;
 use crate::ui::sidebars::{EditorRightSidebarTab, SceneEditorSidebarState};
@@ -46,7 +50,10 @@ fn page() -> (App, Entity) {
         .init_resource::<CelestialSectionState>()
         .init_resource::<EnvironmentNumericInputState>()
         .init_resource::<GlobalEnvironmentSaveTask>()
-        .add_message::<NumericInputSetValue>();
+        .init_resource::<SimulationInputState>()
+        .init_resource::<EnvironmentPageState>()
+        .add_message::<NumericInputSetValue>()
+        .add_message::<EnvironmentLibraryEditRequest>();
     app.init_resource::<SceneEditorSidebarState>();
     app.world_mut()
         .resource_mut::<SceneEditorSidebarState>()
@@ -70,6 +77,12 @@ fn page() -> (App, Entity) {
         ..default()
     });
     app.world_mut().resource_mut::<WorldClock>().set_hour(12.0);
+    {
+        let mut global = app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>();
+        global.draft.library = feathrise_scene_content::WorldEnvironmentLibrary::default()
+            .with_legacy_default(&global.draft.celestial_lighting);
+        global.selected_environment_id = Some(global.draft.library.default_profile_id.clone());
+    }
     app.add_systems(Startup, super::scene::environment_page.spawn());
     app.add_systems(
         Update,
@@ -78,10 +91,13 @@ fn page() -> (App, Entity) {
             setup_celestial_numeric_inputs,
             setup_world_environment_controls,
             setup_world_environment_slider_layout,
+            handle_environment_library_buttons,
             sync_environment_numeric_inputs,
+            sync_library_sky_inputs,
             sync_celestial_controls,
             sync_world_environment_controls,
             sync_editor_environment_text,
+            sync_environment_library,
         )
             .chain()
             .after(EditorUiSystemSet::NumericInput),
@@ -237,13 +253,14 @@ fn environment_domains_keep_one_scroll_host_and_original_controls() {
             .query_filtered::<Entity, With<NumericInputRoot>>()
             .iter(world)
             .count(),
-        24
+        28
     );
     for label in [
-        "当前场景 · 持久参数",
-        "天空与环境光",
-        "世界调试 · 当前运行",
-        "全局默认 · 所有动态场景",
+        "场景环境",
+        "环境来源",
+        "时间、天气与草尖摆幅",
+        "全局环境库",
+        "全局方案",
     ] {
         assert_eq!(
             world
@@ -275,6 +292,84 @@ fn environment_domains_keep_one_scroll_host_and_original_controls() {
     assert_eq!(scene_display(&mut app), Display::Flex);
     settle(&mut app);
     assert_eq!(author(&app), before);
+}
+
+#[test]
+fn environment_tabs_keep_scene_and_library_distinct() {
+    use super::library::LibraryPanel;
+    let (mut app, _) = page();
+    let before = author(&app);
+    let click = |app: &mut App, matches: fn(&LibraryButton) -> bool| {
+        let world = app.world_mut();
+        let entity = world.query::<(Entity, &LibraryButton)>().iter(world)
+            .find_map(|(entity, action)| matches(action).then_some(entity)).unwrap();
+        world.entity_mut(entity).insert(EditorButtonClick::triggered());
+        app.update();
+    };
+    let page_visible = |app: &mut App, page| {
+        let world = app.world_mut();
+        world.query::<(&LibraryPanel, &Node)>().iter(world)
+            .any(|(panel, node)| matches!(panel, LibraryPanel::Page(id) if *id == page) && node.display == Display::Flex)
+    };
+    assert!(page_visible(&mut app, EnvironmentPage::Scene));
+    assert!(!page_visible(&mut app, EnvironmentPage::Library));
+
+    click(&mut app, |action| matches!(action, LibraryButton::ChooseShared));
+    click(&mut app, |action| matches!(action, LibraryButton::UseShared(_)));
+    let requests = app.world().resource::<Messages<EnvironmentLibraryEditRequest>>();
+    assert!(requests.get_cursor().read(requests).any(|request| matches!(request, EnvironmentLibraryEditRequest::UseShared(_))));
+
+    click(&mut app, |action| matches!(action, LibraryButton::Page(EnvironmentPage::Library)));
+    assert!(page_visible(&mut app, EnvironmentPage::Library));
+    assert!(!page_visible(&mut app, EnvironmentPage::Scene));
+    click(&mut app, |action| matches!(action, LibraryButton::Select(_)));
+    let requests = app.world().resource::<Messages<EnvironmentLibraryEditRequest>>();
+    assert!(requests.get_cursor().read(requests).any(|request| matches!(request, EnvironmentLibraryEditRequest::Select(_))));
+    assert_eq!(author(&app), before); // 切换页签本身不会写作者草稿。
+}
+
+#[test]
+fn environment_simulation_inputs_require_local_scene_or_library_scope() {
+    use bevy::ui::RelativeCursorPosition;
+    use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource};
+
+    let (mut app, _) = page();
+    app.add_systems(Update, handle_world_environment_controls.after(handle_environment_library_buttons));
+    let world = app.world_mut();
+    let id = world.resource::<GlobalEnvironmentAuthoringState>().draft.library.default_profile_id.clone();
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.source =
+        SceneEnvironmentSource::Shared(id.clone());
+    let before = author(&app);
+
+    let world = app.world_mut();
+    let tracks = world.query::<(Entity, &Node, &RelativeCursorPosition)>().iter(world)
+        .filter(|(_, node, _)| node.height == px(SliderVisual::default().track_height))
+        .map(|(entity, _, _)| entity).collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 5);
+    world.resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+    for track in tracks {
+        world.entity_mut(track).insert((UiInteraction::Pressed, RelativeCursorPosition {
+            cursor_over: true, normalized: Some(Vec2::new(0.25, 0.0)),
+        }));
+    }
+    // 故意绕过拾取投影，把隐藏轨道的按压交给业务层，确认共享来源仍被拒绝。
+    world.run_schedule(Update);
+    assert_eq!(author(&app), before);
+
+    let world = app.world_mut();
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.source =
+        SceneEnvironmentSource::Local;
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.simulation =
+        Some(EnvironmentSimulation::default());
+    world.run_schedule(Update);
+    let simulation = world.resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.environment.simulation.unwrap();
+    assert!(simulation.hour > 12.0 && simulation.weather_mode_index > 0);
+    assert!(simulation.weather_transition < 1.0 && simulation.grass_wind_tip_strength > 0.16);
+    world.resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    world.run_schedule(Update);
+    assert_eq!(world.resource::<EditorAuthoringSession>().undo.len(), 1);
+    assert_eq!(world.resource::<GlobalEnvironmentAuthoringState>().draft.library.profiles[&id].appearance.simulation, EnvironmentSimulation::default());
+    assert_eq!(world.resource::<feathrise_editor_core::EditorSettings>().environment.grass_wind_tip_strength, 0.16);
 }
 
 #[test]
@@ -327,6 +422,36 @@ fn environment_fixed_scenes_do_not_offer_dynamic_overrides() {
     assert_eq!(scene_display(&mut app), Display::None);
     assert!(text(&mut app, EnvironmentTextField::SceneHint).contains("固定场景"));
     assert!(text(&mut app, EnvironmentTextField::CurrentValues).is_empty());
+    assert_eq!(author(&app), before);
+}
+
+#[test]
+fn environment_inherited_simulation_is_read_only_and_refreshes_with_profile() {
+    use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource};
+    let (mut app, _) = page();
+    let id = app.world().resource::<GlobalEnvironmentAuthoringState>().draft.library.default_profile_id.clone();
+    app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>().draft.library.profiles_mut()
+        .get_mut(&id).unwrap().appearance.simulation = EnvironmentSimulation {
+            hour: 18.25, month: 7, day: 15, paused: true,
+            weather_mode_index: 3, weather_transition: 0.5, grass_wind_tip_strength: 0.27,
+        };
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
+        .manifest.environment.source = SceneEnvironmentSource::InheritDefault;
+    let before = author(&app);
+    settle(&mut app);
+    let summary = text(&mut app, EnvironmentTextField::CurrentValues);
+    assert!(summary.contains("18:15 · 7月15日"));
+    assert!(summary.contains("时间暂停 开 · 天气 小雨 · 过渡 50%"));
+    assert!(summary.contains("晴天草尖基准 27 cm"));
+    assert_eq!(scene_display(&mut app), Display::None);
+    assert_eq!(author(&app), before);
+
+    let mut global = app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>();
+    global.draft.library.profiles_mut().get_mut(&id).unwrap().appearance.simulation.hour = 8.5;
+    global.revision += 1;
+    let before = author(&app);
+    settle(&mut app);
+    assert!(text(&mut app, EnvironmentTextField::CurrentValues).contains("08:30"));
     assert_eq!(author(&app), before);
 }
 
@@ -435,7 +560,7 @@ fn environment_global_errors_and_dirty_saving_feedback_keep_separate_scope() {
         .environment_dirty = true;
     settle(&mut app);
     assert!(text(&mut app, EnvironmentTextField::GlobalFeedback).contains("文件损坏"));
-    assert!(text(&mut app, EnvironmentTextField::GlobalFeedback).contains("全局默认未保存"));
+    assert!(text(&mut app, EnvironmentTextField::GlobalFeedback).contains("全局环境库未保存"));
     assert!(text(&mut app, EnvironmentTextField::SceneFeedback).contains("场景环境未保存"));
     assert!(!text(&mut app, EnvironmentTextField::SceneFeedback).contains("全局环境文件"));
     app.world_mut()

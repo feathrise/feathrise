@@ -22,7 +22,12 @@ pub(crate) fn start_global_environment_save(
     deletion: Res<SceneDeletionTask>,     // 回收事务拥有 catalog 与私有目录期间暂停保存。
     surface_task: Option<Res<SurfaceLayerEditTask>>, // 全局配置的独立测试场景允许没有场景删层资源。
     surface_stroke: Option<Res<SurfaceBrushStroke>>, // 若场景正在补画，保留顶部请求等待形成完整联合脏状态。
+    simulation: Option<Res<crate::world_environment_controls::SimulationInputState>>,
 ) {
+    if editor.save_requested && simulation.as_ref().is_some_and(|input| input.busy()) {
+        editor.status = "环境滑块尚未松手；松手后自动继续保存".into();
+        return; // 保留请求，不能冻结尚未正式提交的全局参数。
+    }
     if editor.save_requested // 依据完整作者条件选择有限处理分支。
         && (surface_task // 依据完整作者条件选择有限处理分支。
             .as_deref() // 完成当前地表作者事务的受检参数或值转换。
@@ -111,6 +116,7 @@ pub(crate) fn poll_global_environment_save(
             session.successful_save_sequence = session.successful_save_sequence.wrapping_add(1); // 仅全局保存也向冻结切换场景请求提供成功回执。
             if let Some(registry) = registry.as_deref_mut() {
                 registry.celestial_lighting = snapshot.celestial_lighting.clone().normalized(); // 同帧运行时使用成功落盘值。
+                registry.library = snapshot.library.clone();
                 registry.last_error = None; // F12 全局加载错误立即清除。
                 registry.revision = registry.revision.wrapping_add(1); // 动态场景重新解析场景覆盖。
                 global.source_revision = registry.revision; // 后续热重载同值不会误判为未观察来源。

@@ -65,7 +65,7 @@ pub(super) fn install(
         save_requested: false,
         save_error: None,
         save_proof: None,
-        expects_chosen_glb_reopened: crate::native_validation::expects_chosen_glb_reopened(),
+        expects_saved_scene_reopened: crate::native_validation::expects_saved_scene_reopened(),
         current_author_document: None,
         font,
         directory,
@@ -392,9 +392,9 @@ fn observe(
                 60
             }
             && !plan.play_requested);
-    // 重开专项须等原场景树展开、正式实例采用，普通窗口就绪帧数不足以证明这两项已经完成。
-    let reopened_glb_ready = !plan.expects_chosen_glb_reopened || plan.current_author_document.is_some();
-    if (plan.stable_frames < 30 || !editor_3d_ready || !reopened_glb_ready) && !timed_out {
+    // 重开专项在正式数据和对应 UI 都恢复后才截图，不能只等普通窗口就绪。
+    let reopen_ready = !plan.expects_saved_scene_reopened || plan.current_author_document.is_some();
+    if (plan.stable_frames < 30 || !editor_3d_ready || !reopen_ready) && !timed_out {
         return;
     }
 
@@ -414,7 +414,7 @@ fn observe(
         && !authoring_failed
         && plan.recovery_ready
         && !recovery_failed
-        && reopened_glb_ready
+        && reopen_ready
         && code_iteration_error.is_none()
         && (!plan.run_saved_play || plan.play_result.as_ref().is_some_and(Result::is_ok))
         && !plan.cancel_requested;
@@ -475,8 +475,8 @@ fn observe(
         report["animation_edit"] = json!(plan.animation_edit);
     }
     report["current_author_document"] = json!(plan.current_author_document);
-    if !reopened_glb_ready {
-        report["scene_tree_reopen_error"] = json!("重开后未确认已有 GLB 的实际场景树行和渲染实例");
+    if !reopen_ready {
+        report["scene_tree_reopen_error"] = json!("重开后未确认保存的场景数据及对应界面显示");
     }
     report["preset_authoring"] = json!((!plan.animation_only).then(|| authoring.report()));
     report["saved_play_recovery"] = json!(plan.recovery_report);
