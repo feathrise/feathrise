@@ -285,7 +285,7 @@ fn new_entry_name(action: FileAction, english: bool) -> &'static str {
         (FileAction::NewMarkdown, false) => "新建文档.md", (FileAction::NewMarkdown, true) => "New document.md",
         (FileAction::NewGlb, false) => "新建场景.glb", (FileAction::NewGlb, true) => "New scene.glb",
         (FileAction::NewCinematic, false) => "新建剧情演出.cinematic.json", (FileAction::NewCinematic, true) => "New cinematic.cinematic.json",
-        (FileAction::NewUiLayout, false) => "新建界面.bsn", (FileAction::NewUiLayout, true) => "New UI.bsn",
+        (FileAction::NewUiLayout, false) => "新建界面.rs", (FileAction::NewUiLayout, true) => "New UI.rs",
         _ => "",
     }
 }
@@ -349,7 +349,7 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.kind == FileOperationKind::CreateFile && receipt.error.is_none()
             && let [change] = receipt.completed.as_slice() && let Some(path) = &change.destination
             && (feathrise_cinematic::is_cinematic_path(path)
-                || crate::ui::asset_preview::documents::ui_layout::is_path(path))
+                || crate::ui::asset_preview::documents::ui_layout::is_candidate_path(path))
             && let Some(open) = open.as_deref_mut() {
             open.write(OpenManagedFile { path: path.clone() });
         }

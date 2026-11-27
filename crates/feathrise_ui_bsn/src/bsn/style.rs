@@ -29,9 +29,24 @@ pub(super) fn padding_text(widget: &UiWidget) -> String {
 }
 
 pub(super) fn write_node(output: &mut String, widget: &UiWidget) {
-    let node = &widget.style;
     let defaults = UiWidget::default_style(widget.kind);
-    let cross_gap = if widget.direction == FlexDirection::Row {
+    write_node_with_defaults(
+        output,
+        &widget.style,
+        &defaults,
+        widget.direction,
+        widget.position.is_some(),
+    );
+}
+
+pub(super) fn write_node_with_defaults(
+    output: &mut String,
+    node: &Node,
+    defaults: &Node,
+    direction: FlexDirection,
+    pixel_position: bool,
+) {
+    let cross_gap = if direction == FlexDirection::Row {
         ("row_gap", node.row_gap)
     } else {
         ("column_gap", node.column_gap)
@@ -39,7 +54,7 @@ pub(super) fn write_node(output: &mut String, widget: &UiWidget) {
     if cross_gap.1 != Val::Auto {
         let _ = write!(output, ", {}: {}", cross_gap.0, length_text(cross_gap.1));
     }
-    if widget.position.is_none() && node.position_type == PositionType::Absolute {
+    if !pixel_position && node.position_type == PositionType::Absolute {
         let _ = write!(output, ", position_type: PositionType::Absolute");
         for (name, value) in [
             ("left", node.left),
@@ -324,7 +339,10 @@ impl Reader<'_> {
         Ok(rect)
     }
 
-    pub(super) fn components(&mut self, widget: &mut UiWidget) -> Result<(), String> {
+    pub(super) fn components(&mut self, widget: &mut UiWidget) -> Result<bool, String> {
+        if self.native {
+            return self.native_components(widget);
+        }
         let mut seen = HashSet::new();
         loop {
             self.space();
@@ -397,12 +415,21 @@ impl Reader<'_> {
         if !widget.action.is_empty() && widget.kind != WidgetKind::Button {
             return Err(self.error("动作只适用于按钮"));
         }
-        Ok(())
+        Ok(false)
     }
 
-    fn color_argument(&mut self) -> Result<[u8; 4], String> {
+    pub(super) fn color_argument(&mut self) -> Result<[u8; 4], String> {
         self.expect("(")?;
-        self.expect("Color::srgba_u8(")?;
+        let color = self.color_literal()?;
+        self.expect(")")?;
+        Ok(color)
+    }
+
+    pub(super) fn color_literal(&mut self) -> Result<[u8; 4], String> {
+        self.expect("Color")?;
+        self.expect("::")?;
+        self.expect("srgba_u8")?;
+        self.expect("(")?;
         let mut color = [0; 4];
         for (index, channel) in color.iter_mut().enumerate() {
             *channel = self
@@ -413,7 +440,7 @@ impl Reader<'_> {
                 self.expect(",")?;
             }
         }
-        self.expect("))")?;
+        self.expect(")")?;
         Ok(color)
     }
 }

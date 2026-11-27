@@ -18,7 +18,8 @@ pub(super) fn sync(
 ) {
     let doc = documents
         .current()
-        .filter(|doc| documents.visible && doc.mode == super::super::types::ViewMode::Edit);
+        .filter(|doc| documents.visible && !documents.ui_layout_in_center()
+            && doc.mode == super::super::types::ViewMode::Edit);
     for (entity, action, interaction, mut node, mut background, disabled) in &mut buttons {
         let enabled = doc.is_some_and(|doc| {
             if *action == HistoryAction::Undo {

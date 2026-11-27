@@ -202,11 +202,11 @@ fn new_file_bytes(kind: NewFileKind, name: &str) -> Result<Vec<u8>, String> {
         // 空字节串本身是合法UTF-8；不写BOM或默认正文，作者打开后可直接输入。
         NewFileKind::Text | NewFileKind::Markdown => Vec::new(),
         NewFileKind::UiLayout => {
-            if !Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bsn")) {
-                return Err("界面布局文件名应以 .bsn 结尾".into());
+            if !Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")) {
+                return Err("界面布局文件名应以 .rs 结尾".into());
             }
-            // 使用空根容器作为可直接在中央画布编辑的资产。
-            b"#root Node { width: percent(100.0f32), flex_direction: FlexDirection::Column }\n".to_vec()
+            // 新建即为可编译的 Rust 模块，画布和源码编辑同一份 bsn! 控件树。
+            feathrise_ui_bsn::UiLayout::default().to_rust().into_bytes()
         }
         NewFileKind::Cinematic => {
             let end = name.len().checked_sub(".cinematic.json".len())

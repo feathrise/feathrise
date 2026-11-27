@@ -209,9 +209,7 @@ pub(super) fn present(
             .despawn_children()
             .with_children(|body| {
                 body.spawn(line()).with_children(|bar| {
-                    button(bar, &font, locale.text("ui_bsn.save"), Action::Save, true);
-                    button(bar, &font, locale.text("ui_bsn.undo"), Action::Undo, false);
-                    button(bar, &font, locale.text("ui_bsn.redo"), Action::Redo, false);
+                    // 保存和历史由工作台顶栏路由到当前文档，画布只保留自己的模式与属性操作。
                     button(
                         bar,
                         &font,
@@ -281,13 +279,24 @@ pub(super) fn present(
                     });
                     columns.spawn(pane(px(0), 1.0)).with_children(|center| {
                         center.spawn(line()).with_children(|bar| {
-                            button(
-                                bar,
-                                &font,
-                                locale.text("ui_bsn.edit"),
-                                Action::Preview(false),
-                                !state.interactive,
-                            );
+                            // 模式切换保持相邻，窄屏换行时也不能把预览与编辑拆散。
+                            bar.spawn(Node { column_gap: px(3), flex_shrink: 0.0, ..default() })
+                                .with_children(|modes| {
+                                    button(
+                                        modes,
+                                        &font,
+                                        locale.text("ui_bsn.edit"),
+                                        Action::Preview(false),
+                                        !state.interactive,
+                                    );
+                                    button(
+                                        modes,
+                                        &font,
+                                        locale.text("ui_bsn.preview"),
+                                        Action::Preview(true),
+                                        state.interactive,
+                                    );
+                                });
                             let screen = design_size(layout, &state).is_some();
                             button(
                                 bar,
@@ -306,13 +315,6 @@ pub(super) fn present(
                             if !screen {
                                 button(bar, &font, "1920 × 1080", Action::Design, false);
                             }
-                            button(
-                                bar,
-                                &font,
-                                locale.text("ui_bsn.preview"),
-                                Action::Preview(true),
-                                state.interactive,
-                            );
                         });
                         let size = design_size(layout, &state);
                         let board_node = if size.is_some() {

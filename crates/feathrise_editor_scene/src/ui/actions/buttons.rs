@@ -114,6 +114,9 @@ pub(crate) fn handle_editor_action_buttons(
             if availability.reason(button.0).is_some() {
                 continue;
             }
+            if availability.uses_document_context(button.0) {
+                continue; // 原文档接收端认领公共按钮，不能同时设置隐藏场景的保存或历史请求。
+            }
             if availability.uses_weight_context(button.0) {
                 input_guard.availability.send_weight_command(
                     button.0,

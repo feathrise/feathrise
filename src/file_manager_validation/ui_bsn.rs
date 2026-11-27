@@ -1,4 +1,4 @@
-//! 通过独立 Feathrise 的两个实际进程验收 BSN 制作及双击重开。
+//! 通过独立 Feathrise 的两个实际进程验收原生 Rust 界面制作、源码往返及双击重开。
 
 use super::*;
 
@@ -40,7 +40,7 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         .env(ENV, work);
     crate::native_validation::isolate_author_command(&mut command, work)?;
 
-    let asset = root.join("assets/ui/character_stats.bsn");
+    let asset = root.join("assets/ui/character_stats.rs");
     let mut saved = None;
     for phase in ["edit", "reopen"] {
         command.env(PHASE_ENV, phase);
@@ -61,11 +61,14 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         }
         let data = fs::read(&asset).map_err(|error| error.to_string())?;
         let source = std::str::from_utf8(&data).map_err(|error| error.to_string())?;
-        if !source.contains(r#"UiBinding("physical_attack")"#)
-            || !source.contains(r#"UiBinding("health")"#)
+        if !source.starts_with("// feathrise-ui: editable\n")
+            || !source.contains("bsn!")
+            || !source.contains(r#""physical_attack""#)
+            || !source.contains(r#""health""#)
             || !source.contains("position_type: PositionType::Absolute")
+            || !source.ends_with("\npub const EDITOR_USER_CODE: &str = \"manual Rust is retained\";\n")
         {
-            return Err("实际落盘的 BSN 缺少绑定或拖动后的坐标".into());
+            return Err("实际落盘的 Rust 界面缺少原生宏、绑定、拖动坐标或宏外手写代码".into());
         }
         let hash = sha256(&data);
         if saved.as_ref().is_some_and(|before| before != &hash) {

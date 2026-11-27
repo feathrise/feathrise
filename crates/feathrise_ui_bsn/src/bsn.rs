@@ -5,21 +5,31 @@ use std::{collections::HashSet, fmt::Write as _};
 use super::*;
 
 mod style;
+pub(crate) mod rust_document;
 
 impl UiLayout {
     pub fn parse(source: &str) -> Result<Self, String> {
+        Self::parse_layout(source, false)
+    }
+
+    fn parse_layout(source: &str, native: bool) -> Result<Self, String> {
         let source = source.trim_start_matches('\u{feff}').trim_start();
         let mut reader = Reader {
             source,
             rest: source,
             ids: HashSet::new(),
             comments: Vec::new(),
+            native,
         };
         reader.space();
         let unnamed_root = reader.rest.starts_with("Node");
+        if native && unnamed_root {
+            return Err(reader.error("原生界面根需要显式 #id，避免保存时新增 Name 组件"));
+        }
         let mut root = reader.widget(0, unnamed_root)?;
-        // 早期两路绑定以节点名表达，转成普通绑定后另存仍保留原数据语义。
-        if unnamed_root
+        // 只有旧资产按节点名迁移两路绑定；原生 Rust 的同名节点仍是普通容器。
+        if !native
+            && unnamed_root
             && root.children.len() == 2
             && root.children.iter().all(|child| {
                 child.kind == WidgetKind::Container
@@ -140,6 +150,7 @@ struct Reader<'a> {
     rest: &'a str,
     ids: HashSet<&'a str>,
     comments: Vec<String>,
+    native: bool,
 }
 
 impl<'a> Reader<'a> {
@@ -161,6 +172,9 @@ impl<'a> Reader<'a> {
             return Err(self.error("控件 ID 重复"));
         }
         let mut widget = UiWidget::new(id.into(), WidgetKind::Container);
+        if self.native {
+            widget.direction = Node::default().flex_direction;
+        }
         self.expect("Node")?;
         self.expect("{")?;
         let (mut left, mut top, mut absolute) = (None, None, false);
@@ -211,6 +225,12 @@ impl<'a> Reader<'a> {
                 break;
             }
         }
+        if self.native {
+            // 原生 Node 的两轴间距独立，省略轴保持 Bevy 的零值；旧资产继续
+            // 兼容单个 gap 同时设置两轴的历史约定，不能把该约定带入 Rust 源码。
+            row_gap.get_or_insert(0.0);
+            column_gap.get_or_insert(0.0);
+        }
         widget.gap = if widget.direction == FlexDirection::Row {
             column_gap.or(row_gap)
         } else {
@@ -239,14 +259,35 @@ impl<'a> Reader<'a> {
                 if widget.style.right == Val::Auto && widget.style.bottom == Val::Auto => {}
             _ => return Err(self.error("定位偏移需要 PositionType::Absolute")),
         }
-        self.components(&mut widget)?;
+        let button_text_on_parent = self.components(&mut widget)?;
         // 控件类型在 Node 后声明；只补齐未显式指定的类型默认，不覆盖作者约束。
-        let defaults = UiWidget::default_style(widget.kind);
+        let defaults = if self.native {
+            Node::default()
+        } else {
+            UiWidget::default_style(widget.kind)
+        };
         if !fields.contains("min_width") {
             widget.style.min_width = defaults.min_width;
         }
         if !fields.contains("flex_shrink") {
             widget.style.flex_shrink = defaults.flex_shrink;
+        }
+        if !fields.contains("justify_content") {
+            widget.style.justify_content = defaults.justify_content;
+        }
+        if !fields.contains("align_items") {
+            widget.style.align_items = defaults.align_items;
+        }
+        if self.native {
+            // 原生省略项采用 Bevy 默认；不能再次套用旧资产中按钮/绑定的居中补齐。
+            if matches!(widget.kind, WidgetKind::Button | WidgetKind::Binding)
+                && widget.style.justify_content == JustifyContent::Default
+            {
+                widget.style.justify_content = JustifyContent::FlexStart;
+            }
+            if widget.kind == WidgetKind::Button && widget.style.align_items == AlignItems::Default {
+                widget.style.align_items = AlignItems::Stretch;
+            }
         }
         let has_children = self.take("Children");
         // 分隔处及字段中的行注释随当前控件重排，字符串中的 // 仍由字符串解析器读取。
@@ -256,6 +297,10 @@ impl<'a> Reader<'a> {
                 return Err(self.error("只有容器和按钮可以拥有子控件"));
             }
             self.expect("[")?;
+            // 原生按钮的文字是真实子实体；画布把这个无 ID 的标签折回按钮属性。
+            if self.native && widget.kind == WidgetKind::Button {
+                self.button_label(&mut widget, button_text_on_parent)?;
+            }
             if !self.take("]") {
                 loop {
                     widget.children.push(self.widget(depth + 1, false)?);
@@ -265,6 +310,13 @@ impl<'a> Reader<'a> {
                     self.expect("--")?;
                 }
             }
+        }
+        // 空按钮没有 Text 子实体提供 required 文字组件；原生文件必须显式拥有
+        // 导出器保留的三项文字样式，不能在保存时悄悄为实体新增组件。
+        if self.native && widget.kind == WidgetKind::Button && widget.content.is_empty()
+            && !button_text_on_parent
+        {
+            return Err(self.error("空按钮需显式 TextFont、TextColor 和 TextLayout；否则请使用源码编辑"));
         }
         Ok(widget)
     }
@@ -313,6 +365,11 @@ impl<'a> Reader<'a> {
 
     fn string_argument(&mut self) -> Result<String, String> {
         self.expect("(")?;
+        if self.native {
+            let text = self.bare_string()?;
+            self.expect(")")?;
+            return Ok(text);
+        }
         self.expect("\"")?;
         let mut text = String::new();
         let mut chars = self.rest.chars();
@@ -352,8 +409,25 @@ impl<'a> Reader<'a> {
 
     fn space(&mut self) {
         self.rest = self.rest.trim_start();
-        while self.rest.starts_with("//") {
-            let end = self.rest.find('\n').unwrap_or(self.rest.len());
+        loop {
+            let end = if self.rest.starts_with("//") {
+                self.rest.find('\n').unwrap_or(self.rest.len())
+            } else if self.rest.starts_with("/*") {
+                // Rust 允许嵌套块注释；保留完整原文，不能在第一个 */ 提前截断。
+                let bytes = self.rest.as_bytes();
+                let (mut depth, mut index) = (1usize, 2);
+                while depth != 0 && index + 1 < bytes.len() {
+                    match &bytes[index..index + 2] {
+                        b"/*" => { depth += 1; index += 2; }
+                        b"*/" => { depth -= 1; index += 2; }
+                        _ => index += 1,
+                    }
+                }
+                if depth != 0 { break; }
+                index
+            } else {
+                break;
+            };
             self.comments
                 .push(self.rest[..end].trim_end_matches('\r').to_owned());
             self.rest = self.rest[end..].trim_start();

@@ -72,11 +72,12 @@ pub(super) fn sync(
     }
     let doc = state.current();
     let editing = state.editing();
+    let shared_controls = state.ui_layout_in_center();
     for (mut node, panel, source, edit_area, preview, launch, external) in &mut nodes {
         let show = if panel {
             state.active.is_some() && replacement.as_ref().is_none_or(|state| !state.preview_visible())
                 && !(state.in_center() && doc.is_some_and(|d| {
-                    (super::cinematic::is_path(&d.path) || ui_layouts.is_some() && super::ui_layout::is_path(&d.path))
+                    (super::cinematic::is_path(&d.path) || ui_layouts.is_some() && super::ui_layout::is_document(&d.path, &d.source))
                         && d.mode == super::types::ViewMode::Preview
                 }))
         } else if source || edit_area {
@@ -154,6 +155,13 @@ pub(super) fn sync(
         }
     }
     for (action, interaction, mut node, mut background, mut border) in &mut buttons {
+        if matches!(action, DocumentAction::Save | DocumentAction::SaveAll) {
+            // 界面源码与画布共用工作台顶栏，切到源码时也不再出现第二组保存入口。
+            let display = if shared_controls { Display::None } else { Display::Flex };
+            if node.display != display {
+                node.display = display;
+            }
+        }
         if matches!(action, DocumentAction::Preview | DocumentAction::Edit | DocumentAction::Save) {
             // 中央工具条保持紧凑；原位归还侧栏时恢复三项等分，不影响其他文档入口。
             let (width, basis, grow, shrink) = if state.in_center() {

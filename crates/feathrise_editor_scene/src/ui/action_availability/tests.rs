@@ -680,3 +680,28 @@ fn mesh_edit_keeps_confirmed_save_available_and_disables_object_commands_in_plac
     assert!(app.world().resource::<SceneEditorState>().save_requested);
     assert_eq!(app.world().get::<Node>(framing).unwrap(), &node, "禁用只改变资格与表现，不重建输入身份");
 }
+
+#[test]
+fn central_ui_document_commands_use_document_save_point_and_history_without_a_scene() {
+    let mut state = EditorActionAvailability {
+        other_workspace: true,
+        document: Some(crate::ui::asset_preview::documents::UiDocumentCommandStatus {
+            dirty: true, undo: true, redo: false, saving: false, blocked: None,
+        }),
+        ..default()
+    };
+    assert!(state.needs_save());
+    assert!(state.uses_document_context(EditorAction::Save));
+    assert_eq!(state.reason(EditorAction::Save), None);
+    assert_eq!(state.reason(EditorAction::Undo), None);
+    assert_eq!(state.reason(EditorAction::Redo), Some("文档没有可重做操作"));
+    assert_eq!(state.reason(EditorAction::FrameScene), Some("请先切换到场景页"));
+    state.document.as_mut().unwrap().blocked = Some("正在采用上一笔界面编辑");
+    for action in [EditorAction::Save, EditorAction::Undo, EditorAction::Redo] {
+        assert_eq!(state.reason(action), Some("正在采用上一笔界面编辑"));
+    }
+    state.document.as_mut().unwrap().blocked = None;
+    state.document.as_mut().unwrap().saving = true;
+    assert_eq!(state.reason(EditorAction::Save), Some("文件任务进行中，请完成后再保存"));
+    assert_eq!(state.reason(EditorAction::Undo), None, "保存回执沿提交内容身份结清，原历史可继续编辑");
+}

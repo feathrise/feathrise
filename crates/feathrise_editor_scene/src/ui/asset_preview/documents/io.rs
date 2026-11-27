@@ -208,7 +208,7 @@ pub(super) fn save(
 ) -> Result<DiskIdentity, String> {
     // 两个作者进程可能同时读到同一旧摘要。在界面、规则与演出校验和替换期间持有工程作者锁。
     let cinematic=feathrise_cinematic::is_cinematic_path(&disk.path);
-    let layout = super::ui_layout::is_path(&disk.path);
+    let layout = super::ui_layout::is_document(&disk.path, pages.first().map_or("", |page| page.as_ref()));
     let _author_lock = (disk.project_rules || cinematic || layout).then(|| ContentAuthorLock::acquire(root)).transpose()
         .map_err(|error| format!("无法取得工程保存锁，当前草稿保留：{error}"))?;
     let mut bytes = Vec::new();

@@ -2,6 +2,7 @@
 
 mod canvas;
 mod fields;
+pub(super) use fields::{Field, input_pending};
 #[cfg(feature = "validation")]
 pub(crate) mod validation;
 mod view;
@@ -15,13 +16,21 @@ use bevy::{
     text::EditableText,
 };
 use feathrise_editor_ui::EditorButtonClick;
-use feathrise_ui_bsn::{UiLayout, UiLayoutAction, UiWidget, WidgetKind};
+use feathrise_ui_bsn::{UiLayout, UiLayoutAction, UiWidget, WidgetKind, is_rust_ui_document};
 use std::{path::Path, sync::Arc};
 
-pub(crate) fn is_path(path: impl AsRef<Path>) -> bool {
+pub(crate) fn is_candidate_path(path: impl AsRef<Path>) -> bool {
     path.as_ref()
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("bsn"))
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("bsn") || ext.eq_ignore_ascii_case("rs"))
+}
+
+pub(crate) fn is_document(path: impl AsRef<Path>, source: &str) -> bool {
+    path.as_ref().extension().is_some_and(|ext| {
+        ext.eq_ignore_ascii_case("bsn")
+            // 原生 Rust 只有首行显式声明可编辑时才进入画布，普通源码沿用文本工作区。
+            || ext.eq_ignore_ascii_case("rs") && is_rust_ui_document(source)
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +43,7 @@ struct Identity {
 fn active(docs: &DocumentState) -> Option<Identity> {
     let doc = docs
         .current()
-        .filter(|doc| docs.in_center() && doc.mode == ViewMode::Preview && is_path(&doc.path))?;
+        .filter(|doc| docs.in_center() && doc.mode == ViewMode::Preview && is_document(&doc.path, &doc.source))?;
     Some(Identity {
         path: doc.path.clone(),
         generation: doc.generation,
@@ -44,11 +53,8 @@ fn active(docs: &DocumentState) -> Option<Identity> {
 
 #[derive(Component, Clone, Debug, PartialEq)]
 enum Action {
-    Save,
     KeepDraft,
     Reload,
-    Undo,
-    Redo,
     Source,
     Preview(bool),
     Narrow(bool),
@@ -145,9 +151,10 @@ impl UiLayouts {
                         document: None,
                     });
                 }
-                let source: Arc<str> = Arc::from(layout.to_bsn());
-                if UiLayout::parse(&source)? != layout {
-                    return Err("布局包含无法写入 BSN 的属性".into());
+                // Rust 文档只替换受支持的 bsn! 正文，函数、导入和手写业务代码保留原字节。
+                let source: Arc<str> = Arc::from(layout.replace_document(&before)?);
+                if UiLayout::parse_document(&source)? != layout {
+                    return Err("布局包含无法写入界面源码的属性".into());
                 }
                 let raw = io::edited_source(&pages, &before, &source, crlf);
                 let pages = io::source_pages(&raw);
@@ -277,17 +284,11 @@ fn buttons(
         state.notice = "正在采用上一笔界面编辑".into();
         return;
     }
-    if inputs.iter().any(|(_, text)| {
-        text.is_composing() || text.pending_paste.is_some() || !text.pending_edits.is_empty()
-    }) {
+    if inputs.iter().any(|(_, text)| input_pending(text)) {
         return;
     }
     focus.clear();
     let edit = match action {
-        Action::Save => {
-            docs.request_save();
-            return;
-        }
         Action::KeepDraft | Action::Reload => {
             if let Some(path) = docs.active.clone() {
                 if action == Action::KeepDraft {
@@ -295,12 +296,6 @@ fn buttons(
                 } else {
                     docs.reload_document(&path, false);
                 }
-            }
-            return;
-        }
-        Action::Undo | Action::Redo => {
-            if let Some(doc) = docs.current_mut() {
-                doc.travel(action == Action::Redo);
             }
             return;
         }
@@ -410,7 +405,7 @@ fn sync(
             editing: false,
             task: AsyncComputeTaskPool::get().spawn(async move {
                 Ok(Prepared {
-                    layout: Arc::new(UiLayout::parse(&source)?),
+                    layout: Arc::new(UiLayout::parse_document(&source)?),
                     document: None,
                 })
             }),
@@ -424,6 +419,17 @@ fn sync(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_explicit_rust_ui_documents_enter_the_canvas() {
+        let source = UiLayout::default().to_rust();
+        assert!(is_document("ui/menu.rs", &source));
+        assert!(is_document("ui/menu.RS", &source));
+        assert!(is_document("ui/legacy.bsn", "#root Node {}"));
+        assert!(!is_document("src/main.rs", "fn main() {}"));
+        assert!(!is_document("src/main.rs", "// example: bsn!\nfn main() {}"));
+        assert!(!is_document("notes.txt", &source));
+    }
 
     #[test]
     fn dragging_right_bottom_anchored_widget_commits_one_unambiguous_left_top_position() {

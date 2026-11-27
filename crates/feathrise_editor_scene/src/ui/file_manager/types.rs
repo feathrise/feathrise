@@ -163,7 +163,7 @@ impl FileAction {
             (Self::NewMarkdown, false) => "Markdown (.md)", (Self::NewMarkdown, true) => "Markdown (.md)",
             (Self::NewGlb, false) => "GLB 场景 (.glb)", (Self::NewGlb, true) => "GLB scene (.glb)",
             (Self::NewCinematic, false) => "剧情演出", (Self::NewCinematic, true) => "Cinematic",
-            (Self::NewUiLayout, false) => "界面布局（.bsn）", (Self::NewUiLayout, true) => "UI Layout (.bsn)",
+            (Self::NewUiLayout, false) => "界面布局（.rs）", (Self::NewUiLayout, true) => "UI Layout (.rs)",
             (Self::Rename, false) => "重命名", (Self::Rename, true) => "Rename",
             (Self::Back, _) => "←", (Self::Forward, _) => "→", (Self::Up, _) => "↑",
             (Self::Refresh, false) => "刷新", (Self::Refresh, true) => "Refresh",
@@ -186,7 +186,7 @@ impl FileAction {
 
     pub(super) fn creates_entry(self) -> bool { matches!(self, Self::NewFolder | Self::NewText | Self::NewMarkdown | Self::NewGlb | Self::NewCinematic | Self::NewUiLayout) }
     pub(super) fn extension(self) -> Option<&'static str> {
-        match self { Self::NewText => Some("txt"), Self::NewMarkdown => Some("md"), Self::NewGlb => Some("glb"), Self::NewCinematic => Some("cinematic.json"), Self::NewUiLayout => Some("bsn"), _ => None }
+        match self { Self::NewText => Some("txt"), Self::NewMarkdown => Some("md"), Self::NewGlb => Some("glb"), Self::NewCinematic => Some("cinematic.json"), Self::NewUiLayout => Some("rs"), _ => None }
     }
 }
 

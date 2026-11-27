@@ -517,7 +517,7 @@ pub(super) fn drive_tasks(
         if let Some(doc) = state.current().filter(|doc| {
             !state.editing() && doc.preview_revision != Some(doc.revision)
                 && !(state.in_center() && (super::cinematic::is_path(&doc.path)
-                    || ui_layouts.is_some() && super::ui_layout::is_path(&doc.path)))
+                    || ui_layouts.is_some() && super::ui_layout::is_document(&doc.path, &doc.source)))
         }) {
             let path = doc.path.clone();
             let generation = doc.generation;

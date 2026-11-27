@@ -27,10 +27,14 @@ pub(super) fn actions(
     ui_layouts: Option<Res<super::ui_layout::UiLayouts>>,
     mut focus: ResMut<InputFocus>,
     buttons: Query<
-        (&feathrise_editor_ui::EditorButtonClick, &DocumentAction),
-        (Changed<feathrise_editor_ui::EditorButtonClick>, Without<super::rules::AuthorButton>),
+        (&feathrise_editor_ui::EditorButtonClick, Option<&DocumentAction>,
+            Option<&crate::components::SceneEditorActionButton>, Option<&SharedDocumentTarget>,
+            Has<bevy::ui::InteractionDisabled>),
+        (Changed<feathrise_editor_ui::EditorButtonClick>, Without<super::rules::AuthorButton>,
+            Or<(With<DocumentAction>, With<crate::components::SceneEditorActionButton>)>),
     >,
-    source: Query<(Entity, &EditableText), With<DocumentSource>>,
+    source: Query<(Entity, &EditableText, Has<DocumentSource>),
+        Or<(With<DocumentSource>, With<super::ui_layout::Field>)>>,
     mut workspace: ResMut<VegetationPresetEditorState>,
     mut layout: Option<ResMut<SceneEditorLayoutState>>,
     mut preview_focus: Option<ResMut<super::super::AssetPreviewFocus>>,
@@ -45,7 +49,10 @@ pub(super) fn actions(
     if !editor.open
         || editor.close_requested
         || editor.new_scene_dialog_open
-        || settings.is_some_and(|settings| settings.open)
+        || editor.scene_transition_in_progress
+        || editor.pending_scene_transition.is_some()
+        || editor.scene_switch_confirmation.is_some()
+        || settings.is_some_and(|settings| settings.open || settings.owns_mouse_this_frame)
         || mouse.blocked()
     {
         return;
@@ -66,26 +73,41 @@ pub(super) fn actions(
         && document_visible;
     let mut actions: Vec<_> = buttons
         .iter()
-        .filter(|(interaction, _)| interaction.is_clicked())
-        .map(|(_, action)| *action)
+        .filter(|(interaction, _, _, _, _)| interaction.is_clicked())
+        .filter_map(|(_, local, shared, target, disabled)| {
+            if let Some(action) = local { return Some((*action, None)); }
+            (!disabled && workspace.active_tab == PresetWorkspaceTab::Document
+                && shared.is_some_and(|button| button.0 == crate::types::EditorAction::Save)
+                && target.is_some_and(|target| target.matches(&state)))
+                .then(|| (DocumentAction::Save, target.unwrap().0.clone()))
+        })
         .collect(); // 工具条和最多8个文件标签，不扫描文件系统或全文。
     if save_key {
-        actions.push(DocumentAction::Save);
+        actions.push((DocumentAction::Save, None));
     }
     if actions.is_empty() {
         return;
     }
+    if source.iter().any(|(_, text, body)| !body && super::ui_layout::input_pending(text)) {
+        // 文档状态变化会重建属性面板；先保留字段实体及其原生队列，不能用提示触发重建。
+        return;
+    }
     if guard.block_shortcuts
-        || source.iter().any(|(_, text)| {
-            text.is_composing() || text.pending_paste.is_some() || !text.pending_edits.is_empty()
-        })
+        || source.iter().any(|(_, text, body)| body && super::ui_layout::input_pending(text))
     {
         if let Some(doc) = state.current_mut() {
             doc.status = "请先确认中文输入或等待粘贴完成，再执行文档操作".into();
         }
         return;
     }
-    for mut action in actions {
+    for (mut action, target) in actions {
+        if target.is_some() && (workspace.active_tab != PresetWorkspaceTab::Document
+            || target != state.ui_layout_target()
+            || state.ui_layout_command_status(ui_layouts.as_deref())
+                .is_none_or(|status| status.reason(crate::types::EditorAction::Save).is_some()))
+        {
+            continue; // 同帧标签动作先执行时，旧公共保存不能改用新的活动文件。
+        }
         if let DocumentAction::CloseTab(id) = action {
             if state.expanded.as_ref().is_none_or(|tab| tab.id != id) {
                 state.parked.retain(|tab| tab.id != id);
@@ -194,7 +216,7 @@ pub(super) fn actions(
         ) {
             if (document_visible || matches!(action, DocumentAction::ActivateTab(_)))
                 && state.editing()
-                && let Ok((entity, _)) = source.single()
+                && let Some((entity, _, _)) = source.iter().find(|(_, _, body)| *body)
             {
                 focus.set(entity, FocusCause::Navigated); // 原实体移位不重绑整篇输入，继续保留光标、撤销与EditableText.viewport。
             }
@@ -255,7 +277,7 @@ pub(super) fn actions(
             DocumentAction::Edit => doc.mode = ViewMode::Edit,
             _ => (),
         }
-        if let Ok((entity, _)) = source.single() {
+        if let Some((entity, _, _)) = source.iter().find(|(_, _, body)| *body) {
             if doc.mode == ViewMode::Edit {
                 focus.set(entity, FocusCause::Navigated);
             } else if focus.get() == Some(entity) {

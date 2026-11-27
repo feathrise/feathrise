@@ -6,6 +6,7 @@ mod view;
 use bevy::prelude::*;
 
 pub use bsn::valid_asset_path;
+pub use bsn::rust_document::is_rust_ui_document;
 pub use view::{LayoutContext, UiLayoutAction, spawn_layout, spawn_widget_tree, widget_node};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -107,6 +108,18 @@ impl UiWidget {
                 Val::Px(0.0)
             },
             flex_shrink: if kind == WidgetKind::Text { 1.0 } else { 0.0 },
+            // 默认模型直接记录按钮/绑定实际采用的居中值；原生源码写出再读后仍应
+            // 与新增控件完全相同，不能仅在渲染时补齐而令编辑器保存检查误判属性丢失。
+            justify_content: if matches!(kind, WidgetKind::Button | WidgetKind::Binding) {
+                JustifyContent::Center
+            } else {
+                JustifyContent::Default
+            },
+            align_items: if kind == WidgetKind::Button {
+                AlignItems::Center
+            } else {
+                AlignItems::Default
+            },
             // Auto 表示未单独覆盖某一轴，最终由通用 gap 合成两轴间距。
             row_gap: Val::Auto,
             column_gap: Val::Auto,

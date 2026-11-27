@@ -13,6 +13,7 @@ feathrise_editor_assets = { workspace = true }
 feathrise_editor_documents_model = { workspace = true }
 feathrise_editor_project_browser_model = { workspace = true }
 feathrise_scene_content = { workspace = true }
+feathrise_ui_bsn = { workspace = true }
 serde_json = { workspace = true }
 notify = "=8.2.0" # 目录变更使用现有原生文件事件版本；只通知原后台扫描，无帧内文件访问。
 

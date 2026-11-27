@@ -3487,6 +3487,7 @@ dependencies = [
  "feathrise_editor_documents_model",
  "feathrise_editor_project_browser_model",
  "feathrise_scene_content",
+ "feathrise_ui_bsn",
  "gltf",
  "libc",
  "notify",
@@ -3966,6 +3967,8 @@ name = "feathrise_ui_bsn"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "proc-macro2",
+ "syn 2.0.119",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ use feathrise_ui_bsn::{UiWidget, WidgetKind, valid_asset_path, widget_node};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Component, Debug, PartialEq, Eq, Hash)]
-pub(super) enum Field {
+pub(in super::super) enum Field {
     Id,
     Parent,
     Width,
@@ -31,6 +31,11 @@ pub(super) enum Field {
     AlignItems,
     JustifyContent,
     TextJustify,
+}
+
+/// 属性与正文的原生输入必须先收口，公共保存和历史不能越过粘贴、排队编辑或输入法预编辑。
+pub(in super::super) fn input_pending(text: &EditableText) -> bool {
+    text.is_composing() || text.pending_paste.is_some() || !text.pending_edits.is_empty()
 }
 
 pub(super) type Values = HashMap<Field, String>;
